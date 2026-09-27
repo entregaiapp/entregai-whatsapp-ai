@@ -170,6 +170,124 @@ Toda IA fica em nossa aplicação.
 
 ---
 
+# 2.6. Estratégia operacional para Baileys e migração de provider
+
+A conexão `EVOLUTION_BAILEYS` existe para oferecer onboarding simples por QR Code e menor custo direto de mensageria, mas deve ser tratada como uma integração **não oficial do WhatsApp**, com risco operacional superior ao da API oficial.
+
+## 2.6.1. Regras de adoção do Baileys
+
+1. **Não utilizar um número crítico como primeiro teste.**  
+   Em homologação e nos primeiros testes reais, utilizar um número secundário ou um número cuja indisponibilidade temporária não comprometa a operação do estabelecimento.
+
+2. **Não utilizar a plataforma para spam ou disparos massivos não solicitados.**  
+   O caso de uso prioritário é atendimento reativo, iniciado pelo cliente, automação de suporte e execução de fluxos autorizados. O fato de a conexão ocorrer via Baileys não remove riscos técnicos, contratuais ou de bloqueio.
+
+3. **Toda conexão Baileys deve ser migrável para Meta oficial.**  
+   Uma organização deve conseguir trocar de `EVOLUTION_BAILEYS` para `EVOLUTION_META` sem perder dados da plataforma.
+
+A aplicação deve comunicar claramente ao estabelecimento que:
+
+```text
+EVOLUTION_BAILEYS
+- conexão por QR Code;
+- não é a API oficial do WhatsApp;
+- pode exigir reconexão;
+- pode sofrer incompatibilidades após mudanças do WhatsApp;
+- possui risco operacional superior.
+
+EVOLUTION_META
+- utiliza a API oficial;
+- possui onboarding e credenciais Meta;
+- segue políticas e cobrança aplicáveis da Meta;
+- deve ser a opção preferencial para operações que exigem maior previsibilidade.
+```
+
+## 2.6.2. Migração Baileys → Meta sem perda de dados
+
+A troca de provider é uma alteração da **camada de transporte**, e não uma migração do domínio da plataforma.
+
+Devem permanecer intactos:
+
+```text
+organizations
+organization_members
+contacts
+conversations
+messages
+conversation_assignments
+ai_agents
+ai_agent_settings
+knowledge_sources
+knowledge_chunks
+automations
+teams
+usage_events
+audit_logs
+```
+
+A migração deve substituir somente os elementos ligados à conexão/transporte, como:
+
+```text
+whatsapp_connection.provider
+evolution_instance_name / evolution_instance_id
+credenciais/referências de secrets
+metadados específicos do provider
+estado da conexão
+```
+
+Fluxo conceitual:
+
+```text
+EVOLUTION_BAILEYS
+       │
+       │ iniciar migração
+       ▼
+bloquear alterações concorrentes na connection
+       │
+       ▼
+provisionar EVOLUTION_META
+       │
+       ▼
+validar conexão oficial
+       │
+       ▼
+trocar provider ativo
+       │
+       ▼
+desativar/remover instância Baileys antiga
+       │
+       ▼
+manter todo o histórico e configurações da plataforma
+```
+
+A operação deve ser auditada e idempotente. Em caso de falha antes da ativação da conexão oficial, a conexão anterior não deve ser removida automaticamente.
+
+## 2.6.3. Independência futura da Evolution para Meta
+
+No MVP, tanto Baileys quanto Meta passam pela Evolution API:
+
+```text
+Nossa aplicação
+      ↓
+EvolutionWhatsAppGateway
+      ↓
+Evolution API
+   ┌──┴──┐
+Baileys  Meta
+```
+
+Entretanto, a interface `WhatsAppGateway` deve permitir futuramente uma implementação direta:
+
+```text
+MetaCloudWhatsAppGateway
+```
+
+sem alterar Conversation Engine, Inbox, IA, Contacts, Automations ou integrações de negócio.
+
+Não implementar esse gateway direto no MVP sem necessidade concreta.
+
+---
+
 # 3. Arquitetura de alto nível
 
 ```mermaid
@@ -3155,6 +3273,18 @@ REGRAS DE EXECUÇÃO
 - [ ] webhook;
 - [ ] funcionamento idêntico no Conversation Engine.
 
+## Migração de provider
+
+- [ ] migrar uma connection de EVOLUTION_BAILEYS para EVOLUTION_META;
+- [ ] preservar o mesmo organization_id;
+- [ ] preservar contatos;
+- [ ] preservar conversas e mensagens;
+- [ ] preservar agente e configurações de IA;
+- [ ] preservar base de conhecimento e automações;
+- [ ] registrar audit log da migração;
+- [ ] falha antes da ativação da Meta não remove a conexão Baileys anterior;
+- [ ] depois da migração, inbound/outbound continuam usando o mesmo Conversation Engine.
+
 ---
 
 # 40. Definition of Done geral
@@ -3197,6 +3327,10 @@ A plataforma só estará pronta para produção quando:
 10. Toda entidade de cliente é multi-tenant.
 11. Secrets nunca ficam no frontend.
 12. Integração Entregaí será um adapter futuro, não dependência do core.
+13. EVOLUTION_BAILEYS deve ser tratado como conexão não oficial e com risco operacional superior.
+14. Toda conexão EVOLUTION_BAILEYS deve poder migrar para EVOLUTION_META sem perda de contatos, conversas, mensagens, IA, conhecimento, automações ou histórico.
+15. Migração de provider altera transporte, não o domínio da plataforma.
+16. No MVP, Meta também passa pela Evolution; integração direta com Meta só será adicionada como outro WhatsAppGateway quando houver necessidade concreta.
 
 ---
 
@@ -3268,6 +3402,8 @@ Regras principais:
 - Quando conversation.mode for HUMAN ou WAITING_HUMAN, a IA não pode responder.
 - Toda informação de cliente deve ser isolada por organization_id.
 - Secrets não podem ir ao frontend.
+- EVOLUTION_BAILEYS é uma opção não oficial e deve ser tratada com risco operacional explícito.
+- Toda connection EVOLUTION_BAILEYS deve ser migrável para EVOLUTION_META sem perda do domínio da plataforma.
 
 IMPORTANTE:
 Não implemente o projeto inteiro de uma vez.
